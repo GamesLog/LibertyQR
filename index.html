@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>QR Code Scanner</title>
+  <style>
+    html, body, video { margin: 0; padding: 0; width: 100%; height: 100%; }
+    #openButton, #switchButton, #torchButton { position: fixed; bottom: 20px; left: 50%; padding: 30px 60px; background: lightblue; border: none; border-radius: 5px; display: none; font-size: 24px; }
+    #switchButton { left: 10%; }
+    #torchButton { left: 90%; transform: translateX(-100%); }
+  </style>
+  <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
+</head>
+<body>
+  <video id="video" autoplay></video>
+  <button id="openButton">Open in Sheets App</button>
+  <button id="switchButton">Switch Camera</button>
+  <button id="torchButton">Toggle Torch</button>
+
+  <script>
+    window.addEventListener('load', function () {
+      let video = document.getElementById('video');
+      let openButton = document.getElementById('openButton');
+      let switchButton = document.getElementById('switchButton');
+      let torchButton = document.getElementById('torchButton');
+      let codeReader = new ZXing.BrowserQRCodeReader();
+      let currentDeviceIndex = 0;
+      let videoInputDevices = [];
+      let track;
+      let torchStatus = false;
+      
+      function startScanning(deviceId) {
+        codeReader.reset();  // reset the previous reader.
+        codeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
+          if (result) {
+            console.log(result.text);
+            let assetNumber = result.text.slice(-8);
+
+            // Reset the reader to stop scanning
+            codeReader.reset();
+
+            // Make a request to your Google Apps Script API
+            fetch('https://script.google.com/macros/s/AKfycbzZzo38ajQLKYIVlM3mMPgNUWWKzL9nPCrhBJNmk8SfBg96yX7LJLcinrHvdQNn0fQnBw/exec?asset=' + assetNumber)
+              .then(response => response.json())
+              .then(data => {
+                // If on Android, show the button instead of redirecting
+                if (navigator.userAgent.match(/Android/i)) {
+                  openButton.style.display = 'block';
+                  openButton.onclick = function() {
+                    // Replace the https://docs.google.com/spreadsheets/d/ part of the URL with intent://spreadsheets/d/
+                    window.location.href = data.url.replace("https://docs.google.com/spreadsheets/d/", "intent://spreadsheets/d/") + "#Intent;scheme=https;package=com.google.android.apps.docs.editors.sheets;end";
+                  };
+                } else {
+                  window.location.href = data.url;
+                }
+              })
+              .catch(error => console.error('Error:', error));
+          }
+          if (err && !(err instanceof ZXing.NotFoundException)) {
+            console.error(err);
+          }
+        }).then(function (ctrl) {
+          track = ctrl.stream.getVideoTracks()[0];
+        });
+      }
+
+      codeReader
+        .getVideoInputDevices()
+        .then((devices) => {
+          videoInputDevices = devices;
+          if (videoInputDevices.length >= 1) {
+            startScanning(videoInputDevices[currentDeviceIndex].deviceId);
+            switchButton.style.display = 'block';
+            switchButton.onclick = function() {
+              currentDeviceIndex = (currentDeviceIndex + 1) % videoInputDevices.length;
+              startScanning(videoInputDevices[currentDeviceIndex].deviceId);
+            };
+
+            // Torch button logic
+            torchButton.style.display = 'block';
+            torchButton.onclick = function() {
+              torchStatus = !torchStatus;
+              if (track && typeof track.getCapabilities === 'function') {
+                let capabilities = track.getCapabilities();
+                if (capabilities.torch) {
+                  track.applyConstraints({advanced: [{torch: torchStatus}]})
+                }
+              }
+            };
+          }
+        })
+        .catch((err) => console.error(err));
+    });
+  </script>
+</body>
+</html>
